@@ -16,7 +16,8 @@
         "dialogflow-fulfillment": "^0.6.1",
         "dotenv": "^10.0.0",
         "express": "^4.17.1",
-        "mongoose": "^5.13.5"
+        "mongoose": "^5.13.5",
+        "stateflow": "^0.6.5"
     },
     "devDependencies": {
         "nodemon": "^2.0.12"
