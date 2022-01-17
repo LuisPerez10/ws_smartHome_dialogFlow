@@ -5,7 +5,8 @@ var express = require("express");
 const { dbConnection } = require('./database/config');
 var stateflow = require('stateflow');
 const { param } = require('./routes/webhook');
-const { obtenerCanales } = require('./class/LGRF');
+const { obtenerCanales, obtenerComandoTV } = require('./class/LGRF');
+const { obtenerBrillo, obtenerTemp, obtenerColor } = require('./class/broadlink');
 
 // const mongoose = require('mongoose');
 
@@ -17,7 +18,7 @@ var app = express();
 app.use(express.json());
 
 // Base de datos
-dbConnection();
+// dbConnection();
 
 // Node Server
 const server = require('http').createServer(app);
@@ -30,7 +31,15 @@ app.get("/pruba", (req, res) => {
     var data = {};
     // var params = { t_tv: 'televisor', a_encender: 'asd' };
     // var params = { t_foco: 'televisor', a_apagar: '', a_encender: 'encender', at_color: 'color', c_commands: "verde" };
-    var params = { t_tv: 'televisor', a_poner: 'd', at_canal: 'canal', c_canal_num: '1' };
+    // var params = { t_tv: 'televisor', a_poner: 'd', at_canal: 'canal', c_canal_num: '1' };
+    // var params = { t_tv: 'poner', a_encender: 'apagar', c_color: 'rojo' };
+    // var params = { t_tv: 'd', a_encender: 'encender' };
+    var params = {
+        a_encender: 'encender',
+        t_tv: 'televisor',
+        t_foco: '',
+        a_apagar: ''
+    };
 
 
     var flow = new stateflow.StateFlow({
@@ -65,11 +74,25 @@ app.get("/pruba", (req, res) => {
                 } else {
 
                     if (params.hasOwnProperty("a_encender") && params.a_encender != "") {
+                        var cdo = "";
+                        if (params.hasOwnProperty("t_foco")) {
+                            cdo = "1";
+                        } else {
+                            cdo = obtenerComandoTV(params.a_encender);
+                        }
                         data.action = "a_encender";
+                        data.commands = [cdo];
                         complete("action_ea");
                     } else
                     if (params.hasOwnProperty("a_apagar") && params.a_apagar != "") {
+                        var cdo = "";
+                        if (params.hasOwnProperty("t_foco")) {
+                            cdo = "0";
+                        } else {
+                            cdo = obtenerComandoTV(params.a_apagar);
+                        }
                         data.action = "a_apagar";
+                        data.commands = [cdo];
                         complete("action_ea");
                     } else if (params.hasOwnProperty("a_poner") && params.a_poner != "") {
                         data.action = "a_poner";
@@ -90,22 +113,22 @@ app.get("/pruba", (req, res) => {
             type: 'state',
             action: function(complete) {
                 console.log("action_ea");
-                // do something
-                if (params.hasOwnProperty("at_brillo") && params.at_brillo != "") {
-                    data.attrib = "at_brillo";
-                    complete("commands");
-                } else
-                if (params.hasOwnProperty("at_canal") && params.at_canal != "") {
-                    data.attrib = "at_canal";
-                    complete("commands");
-                } else
-                if (params.hasOwnProperty("at_color") && params.at_color != "") {
-                    data.attrib = "at_color";
-                    complete("commands");
-                } else {
-                    complete("fin");
-                    // complete("error");
-                }
+                complete("fin");
+                // if (params.hasOwnProperty("at_brillo") && params.at_brillo != "") {
+                //     data.attrib = "at_brillo";
+                //     complete("commands");
+                // } else
+                // if (params.hasOwnProperty("at_canal") && params.at_canal != "") {
+                //     data.attrib = "at_canal";
+                //     complete("commands");
+                // } else
+                // if (params.hasOwnProperty("at_color") && params.at_color != "") {
+                //     data.attrib = "at_color";
+                //     complete("commands");
+                // } else {
+                //     complete("fin");
+                //     // complete("error");
+                // }
             },
             on: {
                 commands: 'commands',
@@ -117,6 +140,10 @@ app.get("/pruba", (req, res) => {
             type: 'state',
             action: function(complete) {
                 console.log("action_p");
+                if (params.hasOwnProperty("at_brillo") && params.at_brillo != "") {
+                    data.attrib = "at_brillo";
+                    complete("commands");
+                } else
                 if (params.hasOwnProperty("at_canal") && params.at_canal != "") {
                     data.attrib = "at_canal";
                     complete("commands");
@@ -124,8 +151,22 @@ app.get("/pruba", (req, res) => {
                 if (params.hasOwnProperty("at_color") && params.at_color != "") {
                     data.attrib = "at_color";
                     complete("commands");
-                } else {
+                } else
+                if (params.hasOwnProperty("at_temperatura_color") && params.at_temperatura_color != "") {
+                    data.attrib = "at_temperatura_color";
+                    complete("commands");
+                } else
+                if (params.hasOwnProperty("at_volumen") && params.at_volumen != "") {
+                    data.attrib = "at_volumen";
+                    complete("commands");
+                }
+                //existe comandos? 
+                var cdos = Object.keys(params).filter(v => /^c_/.test(v));
+                //falta verificar si las keys son nulas sino tira error
+                if (cdos.length < 1) {
                     complete("error");
+                } else {
+                    complete("commands");
                 }
             },
             on: {
@@ -138,25 +179,59 @@ app.get("/pruba", (req, res) => {
             type: 'state',
             action: function(complete) {
                 console.log("commands");
-
-                var key = Object.keys(params).filter(v => /^c_/.test(v));
+                // var key = Object.keys(params).filter(v => /^c_/.test(v));
                 if (params.hasOwnProperty("c_canal_num") && params.c_canal_num != "") {
-                    // ontener los comandos de los canales
-                    var canales = obtenerCanales(params.c_canal_num);
-                    console.log("push");
+                    var cdos = obtenerCanales(params.c_canal_num);
+                    data.commands = [...cdos];
+                    complete("fin");
+                } else
+                if (params.hasOwnProperty("c_control_btn") && params.c_control_btn != "") {
+                    var cdo = obtenerComandoTV(params.c_control_btn);
+                    data.commands = [cdo];
+                    complete("fin");
+                } else
+                if (params.hasOwnProperty("c_subir") && params.c_subir != "") {
+                    // bajar volumen o canal
+                    var c_subir = params.hasOwnProperty("at_canal") ? "cbajar" : "vbajar"
+                    var cdo = obtenerComandoTV(c_subir);
+                    data.commands = [cdo];
+                    complete("fin");
+                } else
+                if (params.hasOwnProperty("c_bajar") && params.c_bajar != "") {
+                    // bajar volumen o canal
 
-                    data.commands = [...canales];
+                    var c_bajar = params.hasOwnProperty("at_canal") ? "cbajar" : "vbajar"
+                    var cdo = obtenerComandoTV(c_bajar);
+                    data.commands = [cdo];
                     complete("fin");
                 } else
-                if (param.hasOwnProperty("c_canal_btn") && params.c_canal_num != "") {
-                    // ontener los comandos de btn
-                    data.commands.add(params.c_canal_num);
+                //brillo
+                if (params.hasOwnProperty("c_brillo") && params.c_brillo != "") {
+                    // bajar volumen o canal
+
+                    var cdo = obtenerBrillo(params.c_brillo);
+                    data.commands = [cdo];
                     complete("fin");
                 } else
-                if (params.hasOwnProperty(key) && params[key] != "") {
-                    data.commands.add(params[key[0]]);
+                if (params.hasOwnProperty("c_color") && params.c_color != "") {
+                    // bajar volumen o canal
+
+                    var cdo = obtenerColor(params.c_color);
+                    data.commands = [cdo];
                     complete("fin");
-                } else {
+                } else
+                if (params.hasOwnProperty("c_temperatura") && params.c_temperatura != "") {
+                    // bajar volumen o canal
+
+                    var cdo = obtenerTemp(params.c_temperatura);
+                    data.commands = [cdo];
+                    complete("fin");
+                } else
+                // if (params.hasOwnProperty(key) && params[key] != "") {
+                //     data.commands.add(params[key[0]]);
+                //     complete("fin");
+                // } else 
+                {
                     complete("error");
                 }
             },
@@ -165,12 +240,17 @@ app.get("/pruba", (req, res) => {
                 error: 'error'
             }
         },
-
-
         fin: {
             type: 'end',
             action: function(complete) {
                 console.log("end");
+                complete('finished');
+            }
+        },
+        error: {
+            type: 'end',
+            action: function(complete) {
+                console.log("error");
                 complete('finished');
             }
         }

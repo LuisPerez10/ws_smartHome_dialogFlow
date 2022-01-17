@@ -1,8 +1,9 @@
 // node 
 //> var d = require("./class/LGRF");
 //> d.obtenerComandoTV("IROnOff");
-const obtenerComandoTV = (entidad) => {
-    switch (entidad) {
+const obtenerComandoTV = (entity) => {
+    console.log("obtenerComandoTV entity", entity);
+    switch (entity) {
         case ("encender"):
             return "tvOnOff";
         case ("apagar"):
