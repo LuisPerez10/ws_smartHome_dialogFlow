@@ -3,6 +3,8 @@ const { response } = require('express');
 const stateflow = require('stateflow');
 const { obtenerCanales, obtenerComandoTV } = require('../class/LGRF');
 const { obtenerBrillo, obtenerTemp, obtenerColor } = require('../class/broadlink');
+const { json } = require('body-parser');
+const { obtenerMensaje } = require('../class/mensajeResponse');
 
 
 
@@ -10,63 +12,35 @@ const webhook = async(req, res = response) => {
     console.log('webhook ok');
     const agent = new WebhookClient({ request: req, response: res });
 
-    console.log("-------------------------------------------------");
-    console.log("agent.agentVersion");
-    console.log(agent.agentVersion);
-    console.log("-------------------------------------------------");
-    console.log("agent.intent");
-    console.log(agent.intent);
-    console.log("-------------------------------------------------");
-    console.log("agent.action");
-    console.log(agent.action);
-    console.log("-------------------------------------------------");
-    console.log("agent.parameters");
-    console.log(agent.parameters);
-    console.log("-------------------------------------------------");
-    console.log("agent.contexts");
-    console.log(agent.contexts);
-    console.log("-------------------------------------------------");
-    console.log("agent.requestSource");
-    console.log(agent.requestSource);
-    console.log("-------------------------------------------------");
-    console.log("agent.originalRequest");
-    console.log(agent.originalRequest);
-    console.log("-------------------------------------------------");
-    console.log("agent.query");
-    console.log(agent.query);
-    console.log("-------------------------------------------------");
-    console.log("agent.locale");
-    console.log(agent.locale);
-    console.log("-------------------------------------------------");
-    console.log("agent.session");
-    console.log(agent.session);
-    console.log("-------------------------------------------------");
-    console.log("agent.consoleMessages");
-    console.log(agent.consoleMessages);
-    console.log("-------------------------------------------------");
-    console.log("agent.alternativeQueryResults");
-    console.log(agent.alternativeQueryResults);
-
-
-    console.log(agent.agentVersion);
-    console.log(agent.intent);
-    console.log(agent.action);
-    console.log(agent.contexts);
-    console.log(agent.parameters);
-    console.log(req.body);
-
-    var data = req.body;
-
-    const MIN_SEQUENCE_LENGTH = 10;
-
-
-
-    function sendSSML(request, response, ssml) {
-        ssml = `${ssml}`;
-
-        response.json({
-            fulfillmentText: ssml
-        });
+    async function accionSensor(req, res) {
+        var action = agent.action;
+        var params = agent.parameters;
+        var data = {};
+        var mensaje;
+        if (params.hasOwnProperty("a_encender") && params.a_encender != "") {
+            mensaje = obtenerMensaje(params.a_encender, action);
+            data.commands = ["ON"]
+        } else
+        if (params.hasOwnProperty("a_apagar") && params.a_apagar != "") {
+            console.log("obtenerMensaje");
+            mensaje = obtenerMensaje(params.a_apagar, action);
+            data.commands = ["OFF"]
+        } else {
+            mensaje = "Error al interpretar el mensaje";
+        }
+        data.item = action;
+        agent.add(mensaje);
+        agent.add(new Payload(agent.UNSPECIFIED, data, { rawPayload: true, sendAsMessage: true }));
+    }
+    async function estadoIluminacion(req, res) {
+        var action = agent.action;
+        var data = {};
+        var mensaje;
+        mensaje = obtenerMensaje("", action);
+        data.commands = null
+        data.item = action;
+        agent.add(mensaje);
+        agent.add(new Payload(agent.UNSPECIFIED, data, { rawPayload: true, sendAsMessage: true }));
     }
 
     async function fImperativa(req, res) {
@@ -78,27 +52,37 @@ const webhook = async(req, res = response) => {
         // analizarParametros(params);
         //preparar respuesta
         var fulldata = await maquinaSuperlativa(params);
-        console.log("fulldata");
-        console.log(fulldata);
-        var { mensaje, ...data } = fulldata;
+        var { msg, ...data } = fulldata;
+        if (msg.localeCompare("ok") == 0) {
+            var cdos = Object.keys(params).filter(v => /^c_/.test(v));
+            if (cdos.length == 0) {
+                cdos = Object.keys(params).filter(v => /^a_/.test(v));
+            }
+            var cdo;
+            cdos.forEach((ele) => {
+                if (params[ele] != "") {
+                    cdo = ele;
+                }
+            })
+            var mensaje = obtenerMensaje(params[cdo], agent.action);
+        } else {
+            var mensaje = "Error al interpretar el mensaje";
+        }
+
         //enviar respuesta
         agent.add(mensaje);
+        data.item = agent.action;
+        // data.commands = JSON.stringify(data.commands);
         agent.add(new Payload(agent.UNSPECIFIED, data, { rawPayload: true, sendAsMessage: true }));
     }
 
-    function sayHello2() {
 
-        const fulldata = {
-            data: "data",
-            value: "Hola che"
-        }
-        agent.add("Saludo amigo");
-        agent.add(new Payload(agent.UNSPECIFIED, fulldata, { rawPayload: true, sendAsMessage: true }));
-    }
 
 
     let intentMap = new Map();
     // intentMap.set('saludo', sayHello2);
+    intentMap.set('s_accion_sensor', accionSensor);
+    intentMap.set('s_estado_luz', estadoIluminacion);
     intentMap.set('t_encender', fImperativa);
     intentMap.set('t_apagar', fImperativa);
     intentMap.set('f_encender', fImperativa);
@@ -110,17 +94,14 @@ const webhook = async(req, res = response) => {
     intentMap.set('t_volumen', fImperativa); // vol+  vol-
     intentMap.set('t_btn', fImperativa); //  presionar cualquier boton dl control
     intentMap.set('t_canal_num', fImperativa); // presionar cualquier numero
-    // intentMap.set('tv_encender', maquinaSuperlativa);
 
     agent.handleRequest(intentMap);
 }
 
-function prepararRespuesta(params) {
-    return maquinaSuperlativa(params);
-};
+
 
 const maquinaSuperlativa = async(params) => {
-    console.log("entro");
+    console.log("maquinaEstado");
     var data = {};
 
     var flow = new stateflow.StateFlow({
@@ -149,43 +130,45 @@ const maquinaSuperlativa = async(params) => {
             action: function(complete) {
                 console.log("to");
 
-                var key = Object.keys(params).filter(v => /^a_/.test(v));
-                if (key.length < 1) {
-                    complete(error);
-                } else {
-
-                    if (params.hasOwnProperty("a_encender") && params.a_encender != "") {
-                        var cdo = "";
-                        if (params.hasOwnProperty("t_foco") && Boolean(params.t_foco)) {
-                            cdo = "1";
-                        } else {
-                            cdo = obtenerComandoTV(params.a_encender);
-                        }
-                        data.action = "a_encender";
-                        data.commands = [cdo];
-                        complete("action_ea");
-                    } else
-                    if (params.hasOwnProperty("a_apagar") && params.a_apagar != "") {
-                        var cdo = "";
-                        if (params.hasOwnProperty("t_foco") && Boolean(params.t_foco)) {
-                            cdo = "0";
-                        } else {
-                            cdo = obtenerComandoTV(params.a_apagar);
-                        }
-                        data.action = "a_apagar";
-                        data.commands = [cdo];
-                        complete("action_ea");
-                    } else if (params.hasOwnProperty("a_poner") && params.a_poner != "") {
-                        data.action = "a_poner";
-                        complete("action_p");
-                        // TODO
+                if (params.hasOwnProperty("a_encender") && params.a_encender != "") {
+                    var cdo = "";
+                    if (params.hasOwnProperty("t_foco") && Boolean(params.t_foco)) {
+                        cdo = "1";
                     } else {
-                        complete("error");
+                        cdo = obtenerComandoTV(params.a_encender);
                     }
+                    data.action = "a_encender";
+                    data.commands = [cdo];
+                    complete("action_ea");
+                } else
+                if (params.hasOwnProperty("a_apagar") && params.a_apagar != "") {
+                    var cdo = "";
+                    if (params.hasOwnProperty("t_foco") && Boolean(params.t_foco)) {
+                        cdo = "0";
+                    } else {
+                        cdo = obtenerComandoTV(params.a_apagar);
+                    }
+                    data.action = "a_apagar";
+                    data.commands = [cdo];
+                    complete("action_ea");
+                } else if (params.hasOwnProperty("a_poner") && params.a_poner != "") {
+                    data.action = "a_poner";
+                    complete("action_p");
+                    // TODO
+                } else
+                if (params.hasOwnProperty("c_subir") && params.c_subir != "") {
+                    console.log("c_subir ok");
+                    complete("commands");
+                } else
+                if (params.hasOwnProperty("c_bajar") && params.c_bajar != "") {
+                    complete("commands");
+                } else {
+                    complete("error");
                 }
             },
             on: {
                 action_ea: 'action_ea',
+                commands: 'commands',
                 action_p: 'action_p',
                 error: 'error'
             }
@@ -195,7 +178,6 @@ const maquinaSuperlativa = async(params) => {
             action: function(complete) {
                 console.log("action_ea");
                 complete("fin");
-
             },
             on: {
                 commands: 'commands',
@@ -229,7 +211,7 @@ const maquinaSuperlativa = async(params) => {
                 }
                 //existe comandos? 
                 var cdos = Object.keys(params).filter(v => /^c_/.test(v));
-                //falta verificar si las keys son nulas sino tira error
+                // falta verificar si las keys son nulas sino tira error
                 if (cdos.length < 1) {
                     complete("error");
                 } else {
@@ -246,7 +228,6 @@ const maquinaSuperlativa = async(params) => {
             type: 'state',
             action: function(complete) {
                 console.log("commands");
-                // var key = Object.keys(params).filter(v => /^c_/.test(v));
                 if (params.hasOwnProperty("c_canal_num") && params.c_canal_num != "") {
                     var cdos = obtenerCanales(params.c_canal_num);
                     data.commands = [...cdos];
@@ -259,37 +240,29 @@ const maquinaSuperlativa = async(params) => {
                 } else
                 if (params.hasOwnProperty("c_subir") && params.c_subir != "") {
                     // bajar volumen o canal
-                    var c_subir = params.hasOwnProperty("at_canal") ? "cbajar" : "vbajar"
+                    var c_subir = params.hasOwnProperty("at_canal") ? "csubir" : "vsubir"
                     var cdo = obtenerComandoTV(c_subir);
                     data.commands = [cdo];
                     complete("fin");
                 } else
                 if (params.hasOwnProperty("c_bajar") && params.c_bajar != "") {
                     // bajar volumen o canal
-
                     var c_bajar = params.hasOwnProperty("at_canal") ? "cbajar" : "vbajar"
                     var cdo = obtenerComandoTV(c_bajar);
                     data.commands = [cdo];
                     complete("fin");
                 } else
-                //brillo
                 if (params.hasOwnProperty("c_brillo") && params.c_brillo != "") {
-                    // bajar volumen o canal
-
                     var cdo = obtenerBrillo(params.c_brillo);
                     data.commands = [cdo];
                     complete("fin");
                 } else
                 if (params.hasOwnProperty("c_color") && params.c_color != "") {
-                    // bajar volumen o canal
-
                     var cdo = obtenerColor(params.c_color);
                     data.commands = [cdo];
                     complete("fin");
                 } else
                 if (params.hasOwnProperty("c_temperatura") && params.c_temperatura != "") {
-                    // bajar volumen o canal
-
                     var cdo = obtenerTemp(params.c_temperatura);
                     data.commands = [cdo];
                     complete("fin");
@@ -311,7 +284,7 @@ const maquinaSuperlativa = async(params) => {
             type: 'end',
             action: function(complete) {
                 console.log("end");
-                data.mensaje = "exitoso";
+                data.msg = "ok"
                 complete('finished');
             }
         },
@@ -319,14 +292,14 @@ const maquinaSuperlativa = async(params) => {
             type: 'end',
             action: function(complete) {
                 console.log("error");
-                data.mensaje = "error";
+                data.msg = "error";
                 complete('finished');
             }
         }
     });
     flow.start(function(event) {
         console.log('flow result:', event);
-        console.log(data.mensaje);
+        console.log(data.msg);
     });
 
     console.log('salio');
